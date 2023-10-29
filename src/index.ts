@@ -109,9 +109,6 @@ async function sendTelegramMessage(botApiKey: string, chatId: string, message: s
 }
 
 export default {
-	fetch() {
-		return new Response("Nothing to see here.");
-	},
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
 		let response = await fetch(`https://timus.online/status.aspx?author=${env.AUTHOR_ID}&count=10&locale=ru`);
 		const tableHandler = new TableHandler();
