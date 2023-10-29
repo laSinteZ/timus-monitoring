@@ -108,10 +108,12 @@ async function sendTelegramMessage(botApiKey: string, chatId: string, message: s
 	}
 }
 
-
 export default {
+	fetch() {
+		return new Response("Nothing to see here.");
+	},
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-		let response = await fetch(`https://timus.online/status.aspx?author=${env.AUTHOR_ID}&count=30&locale=ru`);
+		let response = await fetch(`https://timus.online/status.aspx?author=${env.AUTHOR_ID}&count=10&locale=ru`);
 		const tableHandler = new TableHandler();
 		const rewriter = new HTMLRewriter()
 			.on('tr.even, tr.odd', tableHandler)
@@ -124,7 +126,6 @@ export default {
 		let posted = 0;
 		const attemptsChronologicalOrder = tableHandler.getRows().reverse();
 
-		console.log(`Parsed ${attemptsChronologicalOrder.length} attempts`)
 		for (let i = 0; i < attemptsChronologicalOrder.length; i++) {
 			const attempt = attemptsChronologicalOrder[i];
 			const id = attempt['id'] || '';
