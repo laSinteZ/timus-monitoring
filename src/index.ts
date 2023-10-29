@@ -50,7 +50,7 @@ class TableHandler implements HTMLRewriterElementContentHandlers {
 		this.prevText = trimmedText;
 		if (!this.field || !trimmedText) return;
 
-		// Treat dates differently
+		// Treat dates differently. TODO: proper dates with a correct timezone.
 		if (this.field === "date" && !this.currentRow[this.field]) {
 			this.currentRow[this.field] = (this.currentRow[this.field] || "") + trimmedText + " ";
 			// Treat problems differently
