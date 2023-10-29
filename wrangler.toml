@@ -1,9 +1,13 @@
-name = "timus-monitoring-cron"
+name = "timus-monitoring"
 main = "src/index.ts"
 compatibility_date = "2023-05-15"
+
+kv_namespaces = [
+  { binding = "ATTEMPTS", id = "3892cda3f7614de1a3240fa7c79693f7" }
+]
 
 # Cron Triggers
 # Docs: https://developers.cloudflare.com/workers/platform/triggers/cron-triggers/
 # Configuration: https://developers.cloudflare.com/workers/wrangler/configuration/#triggers
 [triggers]
-crons = ["* * * * *"] # * * * * * = run every minute
+crons = ["*/2 * * * *"]

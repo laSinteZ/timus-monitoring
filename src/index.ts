@@ -1,50 +1,143 @@
-/**
- * Welcome to Cloudflare Workers!
- *
- * This is a template for a Scheduled Worker: a Worker that can run on a
- * configurable interval:
- * https://developers.cloudflare.com/workers/platform/triggers/cron-triggers/
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
-
 export interface Env {
-	// Example binding to KV. Learn more at https://developers.cloudflare.com/workers/runtime-apis/kv/
-	// MY_KV_NAMESPACE: KVNamespace;
-	//
-	// Example binding to Durable Object. Learn more at https://developers.cloudflare.com/workers/runtime-apis/durable-objects/
-	// MY_DURABLE_OBJECT: DurableObjectNamespace;
-	//
-	// Example binding to R2. Learn more at https://developers.cloudflare.com/workers/runtime-apis/r2/
-	// MY_BUCKET: R2Bucket;
-	//
-	// Example binding to a Service. Learn more at https://developers.cloudflare.com/workers/runtime-apis/service-bindings/
-	// MY_SERVICE: Fetcher;
-	//
-	// Example binding to a Queue. Learn more at https://developers.cloudflare.com/queues/javascript-apis/
-	// MY_QUEUE: Queue;
-	//
-	// Example binding to a D1 Database. Learn more at https://developers.cloudflare.com/workers/platform/bindings/#d1-database-bindings
-	// DB: D1Database
+	ATTEMPTS: KVNamespace;
+	AUTHOR_ID: string;
+	BOT_TOKEN: string;
+	CHANNEL_ID: string;
 }
 
-export default {
-	// The scheduled handler is invoked at the interval set in our wrangler.toml's
-	// [[triggers]] configuration.
-	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-		// A Cron Trigger can make requests to other endpoints on the Internet,
-		// publish to a Queue, query a D1 Database, and much more.
-		//
-		// We'll keep it simple and make an API call to a Cloudflare API:
-		let resp = await fetch('https://api.cloudflare.com/client/v4/ips');
-		let wasSuccessful = resp.ok ? 'success' : 'fail';
+type Attempt = Record<string, string> & { accepted?: boolean };
+class TableHandler implements HTMLRewriterElementContentHandlers {
+	currentRow: Attempt;
+	rows: Attempt[];
+	field: string | null;
+	isInsideTr: boolean;
+	prevText: string;
 
-		// You could store this result in KV, write to a D1 Database, or publish to a Queue.
-		// In this template, we'll just log the result:
-		console.log(`trigger fired at ${event.cron}: ${wasSuccessful}`);
+	static transformClassToField(className: string | null) {
+		if (className?.includes("verdict")) return "verdict";
+		return className
+	}
+
+	constructor() {
+		this.currentRow = {};
+		this.rows = [];
+		this.field = "";
+		this.isInsideTr = false;
+		this.prevText = "";
+	}
+
+	element(element: Element) {
+		if (element.tagName === 'td') {
+			const className = element.getAttribute('class');
+			this.field = TableHandler.transformClassToField(className);
+
+			if (className === 'verdict_rj') this.currentRow.accepted = false;
+			if (className === 'verdict_ac') this.currentRow.accepted = true;
+
+			this.isInsideTr = true;
+		}
+		else if (element.tagName === 'tr' && this.isInsideTr) {
+			// We were parsing a 'tr', but encountered another one. This means the last one ended.
+			this.rows.push(this.currentRow);
+			this.currentRow = {};
+			this.isInsideTr = false;
+		}
+	}
+	text(text: Text) {
+		const trimmedText = text.text.trim().replace(/\n/g, '');
+		// Avoid repeating values
+		if (trimmedText === this.prevText) return;
+		this.prevText = trimmedText;
+		if (!this.field || !trimmedText) return;
+
+		// Treat dates differently
+		if (this.field === "date" && !this.currentRow[this.field]) {
+			this.currentRow[this.field] = (this.currentRow[this.field] || "") + trimmedText + " ";
+			// Treat problems differently
+		} else if (this.field === "problem" && this.currentRow[this.field]) {
+			this.currentRow["problem_name"] = trimmedText.slice(2);
+		}
+		else {
+			this.currentRow[this.field] = (this.currentRow[this.field] || "") + trimmedText;
+		}
+	}
+
+	getRows() {
+		// Don't forget about the last row.
+		return [...this.rows, this.currentRow];
+	}
+}
+
+function formatMessage(attempt: Attempt, env: Env): string {
+	const linkProblem = `<a href="https://timus.online/problem.aspx?num=${attempt.problem}">${attempt.problem} – ${attempt.problem_name}</a>`;
+	const linkCoder = `<a href="https://timus.online/status.aspx?author=${env.AUTHOR_ID}">${attempt.coder}</a>`;
+
+	return attempt.accepted ? `🎉 Ура! ${linkCoder} решил ${linkProblem} в ${attempt.date}` : `${linkCoder} попытался решить ${linkProblem} в ${attempt.date}, но случился ${attempt.verdict}`
+}
+
+async function sendTelegramMessage(botApiKey: string, chatId: string, message: string): Promise<void> {
+	const url = 'https://api.telegram.org/bot' + botApiKey + '/sendMessage';
+	const params = new URLSearchParams({
+		chat_id: chatId,
+		text: message,
+		parse_mode: 'HTML'
+	});
+
+	try {
+		const response = await fetch(url + '?' + params.toString(), {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+			},
+		});
+
+		if (!response.ok) {
+			// We assume server will return a JSON with 'description' field in case of error.
+			const errorResponse: { description?: string } = await response.json();
+			let message = `HTTP error! status: ${response.status}`;
+
+			// Check if we got an error message back from the server
+			if (errorResponse && errorResponse.description) {
+				message += ` Message: ${errorResponse.description}`;
+			}
+
+			throw new Error(message);
+		}
+	} catch (error) {
+		console.error('Error sending telegram message', error);
+	}
+}
+
+
+export default {
+	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+		let response = await fetch(`https://timus.online/status.aspx?author=${env.AUTHOR_ID}&count=30&locale=ru`);
+		const tableHandler = new TableHandler();
+		const rewriter = new HTMLRewriter()
+			.on('tr.even, tr.odd', tableHandler)
+			.on('tr.even td, tr.odd td', tableHandler)
+			.transform(response);
+		await rewriter.text();
+		const wasSuccessful = response.ok ? 'success' : 'fail';
+		if (!wasSuccessful) throw new Error("Can not fetch updates");
+
+		let posted = 0;
+		const attemptsChronologicalOrder = tableHandler.getRows().reverse();
+
+		console.log(`Parsed ${attemptsChronologicalOrder.length} attempts`)
+		for (let i = 0; i < attemptsChronologicalOrder.length; i++) {
+			const attempt = attemptsChronologicalOrder[i];
+			const id = attempt['id'] || '';
+			const isPresent = !!(await env.ATTEMPTS.get(id));
+
+			if (!isPresent) {
+				const message = formatMessage(attempt, env);
+				await sendTelegramMessage(env.BOT_TOKEN, env.CHANNEL_ID, message);
+				await env.ATTEMPTS.put(id, JSON.stringify(attempt));
+				posted++;
+			}
+		}
+
+		console.log(`Posted ${posted} messages`);
 	},
 };
