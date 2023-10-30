@@ -145,7 +145,7 @@ async function sendTelegramMessage(botApiKey: string, chatId: string, message: s
 
 export default {
 	async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
-		const response = await fetch(`https://timus.online/status.aspx?author=${env.AUTHOR_ID}&count=50&locale=ru`);
+		const response = await fetch(`https://timus.online/status.aspx?author=${env.AUTHOR_ID}&count=10&locale=ru`);
 		const tableHandler = new TableHandler();
 		const rewriter = new HTMLRewriter()
 			.on('tr.even, tr.odd', tableHandler)
