@@ -5,6 +5,40 @@ export interface Env {
 	CHANNEL_ID: string;
 }
 
+const TIMUS_TIMEZONE = "GMT+0500";
+
+function replaceRussianMonthWithEnglish(dateString: string): string {
+  const months = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+  const englishMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+  for (let i = 0; i < months.length; i++) {
+    if (dateString.includes(months[i])) {
+      return dateString.replace(months[i], englishMonths[i]);
+    }
+  }
+  return dateString;
+}
+
+function formatDateToMoscowTime(date: Date) {
+	const optionsTime = {
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit',
+			timeZone: 'Europe/Moscow',
+	} as const;
+	
+	const optionsDate = {
+			day: '2-digit',
+			month: 'long',
+			year: 'numeric',
+			timeZone: 'Europe/Moscow',
+	} as const;
+	
+	const timeStr = date.toLocaleString('ru-RU', optionsTime);
+	const dateStr = date.toLocaleString('ru-RU', optionsDate).replace(' г.', '');
+	return `${timeStr}, ${dateStr}`;
+}
+
 type Attempt = Record<string, string> & { accepted?: boolean };
 class TableHandler implements HTMLRewriterElementContentHandlers {
 	currentRow: Attempt;
@@ -71,8 +105,9 @@ class TableHandler implements HTMLRewriterElementContentHandlers {
 function formatMessage(attempt: Attempt, env: Env): string {
 	const linkProblem = `<a href="https://timus.online/problem.aspx?num=${attempt.problem}">${attempt.problem} – ${attempt.problem_name}</a>`;
 	const linkCoder = `<a href="https://timus.online/status.aspx?author=${env.AUTHOR_ID}">${attempt.coder}</a>`;
+	const formattedDate = formatDateToMoscowTime(new Date(replaceRussianMonthWithEnglish(attempt.date) + " " + TIMUS_TIMEZONE));
 
-	return attempt.accepted ? `🎉 Ура! ${linkCoder} решил ${linkProblem} в ${attempt.date}` : `${linkCoder} попытался решить ${linkProblem} в ${attempt.date}, но случился ${attempt.verdict}`
+	return attempt.accepted ? `🎉 Ура! ${linkCoder} решил ${linkProblem} в ${formattedDate}` : `${linkCoder} попытался решить ${linkProblem} в ${formattedDate}, но случился ${attempt.verdict}`
 }
 
 async function sendTelegramMessage(botApiKey: string, chatId: string, message: string): Promise<void> {
@@ -109,8 +144,8 @@ async function sendTelegramMessage(botApiKey: string, chatId: string, message: s
 }
 
 export default {
-	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-		let response = await fetch(`https://timus.online/status.aspx?author=${env.AUTHOR_ID}&count=10&locale=ru`);
+	async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
+		const response = await fetch(`https://timus.online/status.aspx?author=${env.AUTHOR_ID}&count=50&locale=ru`);
 		const tableHandler = new TableHandler();
 		const rewriter = new HTMLRewriter()
 			.on('tr.even, tr.odd', tableHandler)
